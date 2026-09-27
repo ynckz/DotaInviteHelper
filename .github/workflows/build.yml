@@ -1,0 +1,98 @@
+name: Build DotaInviteHelper
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, main ]
+
+env:
+  CSPROJ: DotaInviteHelper.csproj
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui --source https://api.nuget.org/v3/index.json
+
+      - name: Restore
+        run: dotnet restore ${{ env.CSPROJ }}
+
+      # Unpackaged build: produces a plain folder with the .exe + dependencies,
+      # no MSIX/store signing needed, just unzip and run.
+      - name: Publish Windows build
+        run: >
+          dotnet publish ${{ env.CSPROJ }}
+          -c Release
+          -f net6.0-windows10.0.19041.0
+          -p:WindowsPackageType=None
+          -p:RuntimeIdentifierOverride=win10-x64
+          -p:SelfContained=true
+          -o publish_win
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: DotaInviteHelper-windows
+          path: publish_win/**
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '11'
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android --source https://api.nuget.org/v3/index.json
+
+      - name: Restore
+        run: dotnet restore ${{ env.CSPROJ }}
+
+      # Self-signed debug keystore generated on the fly, just so the APK
+      # is signed and can be installed on a phone (sideload). Not for the Play Store.
+      - name: Generate signing keystore
+        run: >
+          keytool -genkeypair -v -storetype PKCS12
+          -keystore dotainvitehelper.keystore
+          -alias dotainvitehelper
+          -keyalg RSA -keysize 2048 -validity 10000
+          -storepass dotainvitehelper -keypass dotainvitehelper
+          -dname "CN=DotaInviteHelper, OU=Dev, O=Dev, L=City, S=State, C=US"
+
+      - name: Publish Android APK
+        run: >
+          dotnet publish ${{ env.CSPROJ }}
+          -f net6.0-android
+          -c Release
+          -p:AndroidPackageFormat=apk
+          -p:AndroidKeyStore=true
+          -p:AndroidSigningKeyStore=${{ github.workspace }}/dotainvitehelper.keystore
+          -p:AndroidSigningKeyAlias=dotainvitehelper
+          -p:AndroidSigningKeyPass=dotainvitehelper
+          -p:AndroidSigningStorePass=dotainvitehelper
+          -o publish_android
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DotaInviteHelper-android
+          path: publish_android/*Signed.apk
+          if-no-files-found: error
