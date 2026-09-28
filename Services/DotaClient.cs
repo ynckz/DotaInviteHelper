@@ -53,10 +53,19 @@ namespace DotaInviteHelper.Services
 		public event Func<string, bool, Task<string>> EmailCodeRequested;
 
 		public StringBuilder Log = new StringBuilder();
+		readonly object logLock = new object();
 
 		public bool IsLoaded { get; set; }
 		// dota2's appid
 		public const int APPID = 570;
+
+		public void WriteLog(string line)
+		{
+			lock (logLock)
+				Log.AppendLine(line);
+
+			LogUpdated?.Invoke(line);
+		}
 
 		public string AccountName
 		{
@@ -87,8 +96,7 @@ namespace DotaInviteHelper.Services
 			});
 
 			DebugLog.Enabled = true;
-			DebugLog.AddListener((category, msg) => Log.AppendLine(String.Format("Steam - {0}: {1}", category, msg)));
-			DebugLog.AddListener((category, msg) => { if (LogUpdated != null) LogUpdated(String.Format("Steam - {0}: {1}", category, msg)); });
+			DebugLog.AddListener((category, msg) => WriteLog(String.Format("Steam - {0}: {1}", category, msg)));
 
 			GCMesage += OnGCMessageWhenDotaLoading;
 
@@ -244,7 +252,7 @@ namespace DotaInviteHelper.Services
 		// in this case, we'll be handling dota's GC messages
 		void OnGCMessage(SteamGameCoordinator.MessageCallback callback)
 		{
-			Log.AppendLine($"Recv msg ({callback.Message.GetData().Length} bytes):{(EDOTAGCMsg)callback.EMsg}");
+			WriteLog($"Recv msg ({callback.Message.GetData().Length} bytes):{(EDOTAGCMsg)callback.EMsg} ({callback.EMsg})");
 			if (GCMesage != null)
 				GCMesage(callback);
 		}

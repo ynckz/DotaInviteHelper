@@ -43,7 +43,7 @@
 	protected override void OnInitialized()
 	{
 		Log = dota.Log.ToString();
-		dota.LogUpdated += (line) => Log += $"{line}\n";
+		dota.LogUpdated += OnLogUpdated;
 		Name = dota.AccountName;
 	}
 
@@ -58,4 +58,13 @@
 	}
 
 	public void ClearLog() => Log = "";
+
+	private void OnLogUpdated(string line)
+	{
+		_ = InvokeAsync(() =>
+		{
+			Log += $"{line}\n";
+			StateHasChanged();
+		});
+	}
 }

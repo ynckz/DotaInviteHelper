@@ -10,7 +10,6 @@ namespace DotaInviteHelper.Services
 		const int APPID = 570;
 		Dictionary<uint, Action<object>> messageMap;
 
-		Timer spamTimer;
 		bool spamRunning;
 		bool spamAutoKick;
 
@@ -40,13 +39,18 @@ namespace DotaInviteHelper.Services
 
 		void SendInvite()
 		{
+			if (!spamRunning || !dota.IsLoaded)
+			{
+				dota.WriteLog($"[INVITE] skipped: running={spamRunning}, dotaLoaded={dota.IsLoaded}");
+				return;
+			}
+
 			var inviteRequest = new ClientGCMsgProtobuf<CMsgDOTATeamInvite_InviterToGC>((uint)EDOTAGCMsg.k_EMsgGCTeamInvite_InviterToGC);
 			inviteRequest.Body.team_id = targetTeamId;
 			inviteRequest.Body.account_id = spamTargetId;
+			dota.WriteLog($"[INVITE] send team={targetTeamId}, account={spamTargetId}");
 			dota.gameCoordinator.Send(inviteRequest, APPID);
 		}
-		
-		bool spamAutoKick;
 
 		public void StartSpam(uint team_id, uint accountId, bool autoKick)
 		{
@@ -60,50 +64,40 @@ namespace DotaInviteHelper.Services
 				: OnGCMessageWhenSpam;
 
 			SendInvite();
-
-			spamTimer?.Dispose();
-
-			spamTimer = new Timer(
-				_ =>
-				{
-					if (spamRunning)
-						SendInvite();
-				},
-				null,
-				1000,
-				1000
-			);
 		}
 
 		public void StopSpam(bool autoKick)
 		{
 			spamRunning = false;
 
-			spamTimer?.Dispose();
-			spamTimer = null;
-
-			dota.GCMesage -= autoKick
+			// Use the mode that was used at start time. The checkbox can change
+			// while the spammer is running, and unsubscribing with the new value
+			// would leave the old callback attached.
+			dota.GCMesage -= spamAutoKick
 				? OnGCMessageWhenSpamWithAutoKick
 				: OnGCMessageWhenSpam;
 		}
 
 		public void OnGCMessageWhenSpamWithAutoKick(SteamGameCoordinator.MessageCallback callback)
 		{
-			dota.Log.AppendLine($"[SPAM-AUTOKICK] GC message: {callback.EMsg} / {(EDOTAGCMsg)callback.EMsg}");
+			dota.WriteLog($"[SPAM-AUTOKICK] GC message: {callback.EMsg} / {(EDOTAGCMsg)callback.EMsg}");
 			
 			if (callback.EMsg == (uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCImmediateResponseToInviter)
 			{
 				var result = new ClientGCMsgProtobuf<CMsgDOTATeamInvite_GCImmediateResponseToInviter>(callback.Message);
+				dota.WriteLog($"[INVITE] result={result.Body.result}, name={result.Body.invitee_name}, requiredPlayTime={result.Body.required_play_time}");
 				if (result.Body.result == ETeamInviteResult.TEAM_INVITE_ERROR_INVITEE_ALREADY_MEMBER)
 				{
 					var kickRequest = new ClientGCMsgProtobuf<CMsgDOTAKickTeamMember>((uint)EDOTAGCMsg.k_EMsgGCKickTeamMember);
 					kickRequest.Body.account_id = spamTargetId;
 					kickRequest.Body.team_id = targetTeamId;
+					dota.WriteLog($"[INVITE] kick team={targetTeamId}, account={spamTargetId}");
 					dota.gameCoordinator.Send(kickRequest, APPID);
-					SendInvite();
 				}
-				else
-					SendInvite();
+
+				// Reproduce the original Dota bug workaround: send the next
+				// invite immediately after the GC response, without a timer.
+				SendInvite();
 			}
 		}
 
@@ -116,10 +110,13 @@ namespace DotaInviteHelper.Services
 					new ClientGCMsgProtobuf<CMsgDOTATeamInvite_GCImmediateResponseToInviter>(
 						callback.Message);
 
-				dota.Log.AppendLine(
+				dota.WriteLog(
 					$"[INVITE] result={result.Body.result}, " +
-					$"name={result.Body.invitee_name}"
+					$"name={result.Body.invitee_name}, " +
+					$"requiredPlayTime={result.Body.required_play_time}"
 				);
+
+				SendInvite();
 			}
 		}
 		
