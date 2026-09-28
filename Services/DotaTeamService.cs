@@ -12,6 +12,7 @@ namespace DotaInviteHelper.Services
 
 		bool spamRunning;
 		bool spamAutoKick;
+		const int InitialInviteBurstCount = 5;
 
 		public delegate void TeamInfoResponse(ClientGCMsgProtobuf<CMsgDOTATeamsInfo> response);
 		public event TeamInfoResponse teamInfo;
@@ -63,7 +64,9 @@ namespace DotaInviteHelper.Services
 				? OnGCMessageWhenSpamWithAutoKick
 				: OnGCMessageWhenSpam;
 
-			SendInvite();
+			// Queue several requests immediately so multiple invites can be in flight.
+			for (var i = 0; i < InitialInviteBurstCount; i++)
+				SendInvite();
 		}
 
 		public void StopSpam(bool autoKick)
@@ -81,6 +84,27 @@ namespace DotaInviteHelper.Services
 		public void OnGCMessageWhenSpamWithAutoKick(SteamGameCoordinator.MessageCallback callback)
 		{
 			dota.WriteLog($"[SPAM-AUTOKICK] GC message: {callback.EMsg} / {(EDOTAGCMsg)callback.EMsg}");
+			var inviteeResponse = LogInviteeResponse(callback);
+			if (inviteeResponse.HasValue)
+			{
+				if (inviteeResponse.Value == ETeamInviteResult.TEAM_INVITE_SUCCESS)
+				{
+					SendKick();
+					SendInvite();
+				}
+				else
+					SendInvite();
+
+				return;
+			}
+
+			if (callback.EMsg == (uint)EDOTAGCMsg.k_EMsgGCKickTeamMemberResponse)
+			{
+				var result = new ClientGCMsgProtobuf<CMsgDOTAKickTeamMemberResponse>(callback.Message);
+				dota.WriteLog($"[INVITE] kick result={result.Body.result}");
+				SendInvite();
+				return;
+			}
 			
 			if (callback.EMsg == (uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCImmediateResponseToInviter)
 			{
@@ -88,11 +112,7 @@ namespace DotaInviteHelper.Services
 				dota.WriteLog($"[INVITE] result={result.Body.result}, name={result.Body.invitee_name}, requiredPlayTime={result.Body.required_play_time}");
 				if (result.Body.result == ETeamInviteResult.TEAM_INVITE_ERROR_INVITEE_ALREADY_MEMBER)
 				{
-					var kickRequest = new ClientGCMsgProtobuf<CMsgDOTAKickTeamMember>((uint)EDOTAGCMsg.k_EMsgGCKickTeamMember);
-					kickRequest.Body.account_id = spamTargetId;
-					kickRequest.Body.team_id = targetTeamId;
-					dota.WriteLog($"[INVITE] kick team={targetTeamId}, account={spamTargetId}");
-					dota.gameCoordinator.Send(kickRequest, APPID);
+					SendKick();
 				}
 
 				// Reproduce the original Dota bug workaround: send the next
@@ -103,6 +123,12 @@ namespace DotaInviteHelper.Services
 
 		public void OnGCMessageWhenSpam(SteamGameCoordinator.MessageCallback callback)
 		{
+			if (LogInviteeResponse(callback).HasValue)
+			{
+				SendInvite();
+				return;
+			}
+
 			if (callback.EMsg ==
 				(uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCImmediateResponseToInviter)
 			{
@@ -118,6 +144,25 @@ namespace DotaInviteHelper.Services
 
 				SendInvite();
 			}
+		}
+
+		ETeamInviteResult? LogInviteeResponse(SteamGameCoordinator.MessageCallback callback)
+		{
+			if (callback.EMsg != (uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCResponseToInviter)
+				return null;
+
+			var result = new ClientGCMsgProtobuf<CMsgDOTATeamInvite_GCResponseToInviter>(callback.Message);
+			dota.WriteLog($"[INVITE] invitee response={result.Body.result}, name={result.Body.invitee_name}");
+			return result.Body.result;
+		}
+
+		void SendKick()
+		{
+			var kickRequest = new ClientGCMsgProtobuf<CMsgDOTAKickTeamMember>((uint)EDOTAGCMsg.k_EMsgGCKickTeamMember);
+			kickRequest.Body.account_id = spamTargetId;
+			kickRequest.Body.team_id = targetTeamId;
+			dota.WriteLog($"[INVITE] kick team={targetTeamId}, account={spamTargetId}");
+			dota.gameCoordinator.Send(kickRequest, APPID);
 		}
 		
 		public void LoadTeams()
