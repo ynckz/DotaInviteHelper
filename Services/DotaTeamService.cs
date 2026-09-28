@@ -10,6 +10,10 @@ namespace DotaInviteHelper.Services
 		const int APPID = 570;
 		Dictionary<uint, Action<object>> messageMap;
 
+		Timer spamTimer;
+		bool spamRunning;
+		bool spamAutoKick;
+
 		public delegate void TeamInfoResponse(ClientGCMsgProtobuf<CMsgDOTATeamsInfo> response);
 		public event TeamInfoResponse teamInfo;
 
@@ -48,15 +52,37 @@ namespace DotaInviteHelper.Services
 		{
 			spamTargetId = accountId;
 			targetTeamId = team_id;
-			
+			spamAutoKick = autoKick;
+			spamRunning = true;
+
+			dota.GCMesage += autoKick
+				? OnGCMessageWhenSpamWithAutoKick
+				: OnGCMessageWhenSpam;
+
 			SendInvite();
-			
-			dota.GCMesage += autoKick ? OnGCMessageWhenSpamWithAutoKick : OnGCMessageWhenSpam;
+
+			spamTimer?.Dispose();
+
+			spamTimer = new Timer(
+				_ =>
+				{
+					if (spamRunning)
+						SendInvite();
+				},
+				null,
+				1000,
+				1000
+			);
 		}
 
 		public void StopSpam(bool autoKick)
 		{
-			dota.GCMesage -= spamAutoKick
+			spamRunning = false;
+
+			spamTimer?.Dispose();
+			spamTimer = null;
+
+			dota.GCMesage -= autoKick
 				? OnGCMessageWhenSpamWithAutoKick
 				: OnGCMessageWhenSpam;
 		}
@@ -83,33 +109,20 @@ namespace DotaInviteHelper.Services
 
 		public void OnGCMessageWhenSpam(SteamGameCoordinator.MessageCallback callback)
 		{
-			// Логируем ВСЕ сообщения GC, пока работает spam.
-			dota.Log.AppendLine(
-				$"[SPAM] GC message: {callback.EMsg} / {(EDOTAGCMsg)callback.EMsg}"
-			);
-
-			if (callback.EMsg == (uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCImmediateResponseToInviter)
+			if (callback.EMsg ==
+				(uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCImmediateResponseToInviter)
 			{
 				var result =
 					new ClientGCMsgProtobuf<CMsgDOTATeamInvite_GCImmediateResponseToInviter>(
 						callback.Message);
 
 				dota.Log.AppendLine(
-					$"[SPAM] INVITE RESULT: {result.Body.result}"
+					$"[INVITE] result={result.Body.result}, " +
+					$"name={result.Body.invitee_name}"
 				);
-
-				dota.Log.AppendLine(
-					$"[SPAM] INVITEE: {result.Body.invitee_name}"
-				);
-
-				dota.Log.AppendLine(
-					$"[SPAM] REQUIRED PLAY TIME: {result.Body.required_play_time}"
-				);
-
-				// Оставляем spam как был.
-				SendInvite();
 			}
 		}
+		
 		public void LoadTeams()
 		{
 			var requestTeams = new ClientGCMsgProtobuf<CMsgDOTAMyTeamInfoRequest>((uint)EDOTAGCMsg.k_EMsgClientToGCMyTeamInfoRequest);
