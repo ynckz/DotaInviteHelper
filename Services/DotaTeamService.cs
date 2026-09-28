@@ -41,17 +41,27 @@ namespace DotaInviteHelper.Services
 			inviteRequest.Body.account_id = spamTargetId;
 			dota.gameCoordinator.Send(inviteRequest, APPID);
 		}
+		
+		bool spamAutoKick;
+
 		public void StartSpam(uint team_id, uint accountId, bool autoKick)
 		{
 			spamTargetId = accountId;
 			targetTeamId = team_id;
+			spamAutoKick = autoKick;
+
+			dota.GCMesage += spamAutoKick
+				? OnGCMessageWhenSpamWithAutoKick
+				: OnGCMessageWhenSpam;
+
 			SendInvite();
-			dota.GCMesage += autoKick ? OnGCMessageWhenSpamWithAutoKick : OnGCMessageWhenSpam;
 		}
 
 		public void StopSpam(bool autoKick)
 		{
-			dota.GCMesage -= autoKick ? OnGCMessageWhenSpamWithAutoKick : OnGCMessageWhenSpam;
+			dota.GCMesage -= spamAutoKick
+				? OnGCMessageWhenSpamWithAutoKick
+				: OnGCMessageWhenSpam;
 		}
 
 		public void OnGCMessageWhenSpamWithAutoKick(SteamGameCoordinator.MessageCallback callback)

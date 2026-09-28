@@ -51,7 +51,7 @@
 	public void Spam()
 	{
 		if (IsSpamming)
-			teamService.StopSpam(Autokick);
+			teamService.StopSpam();
 		else
 			teamService.StartSpam(selectedTeam.Id, uint.Parse(TargetId), Autokick);
 		IsSpamming = !IsSpamming;
