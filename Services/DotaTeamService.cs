@@ -48,13 +48,10 @@ namespace DotaInviteHelper.Services
 		{
 			spamTargetId = accountId;
 			targetTeamId = team_id;
-			spamAutoKick = autoKick;
-
-			dota.GCMesage += spamAutoKick
-				? OnGCMessageWhenSpamWithAutoKick
-				: OnGCMessageWhenSpam;
-
+			
 			SendInvite();
+			
+			dota.GCMesage += autoKick ? OnGCMessageWhenSpamWithAutoKick : OnGCMessageWhenSpam;
 		}
 
 		public void StopSpam(bool autoKick)
@@ -66,6 +63,8 @@ namespace DotaInviteHelper.Services
 
 		public void OnGCMessageWhenSpamWithAutoKick(SteamGameCoordinator.MessageCallback callback)
 		{
+			dota.Log.AppendLine($"[SPAM-AUTOKICK] GC message: {callback.EMsg} / {(EDOTAGCMsg)callback.EMsg}");
+			
 			if (callback.EMsg == (uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCImmediateResponseToInviter)
 			{
 				var result = new ClientGCMsgProtobuf<CMsgDOTATeamInvite_GCImmediateResponseToInviter>(callback.Message);
@@ -84,8 +83,32 @@ namespace DotaInviteHelper.Services
 
 		public void OnGCMessageWhenSpam(SteamGameCoordinator.MessageCallback callback)
 		{
+			// Логируем ВСЕ сообщения GC, пока работает spam.
+			dota.Log.AppendLine(
+				$"[SPAM] GC message: {callback.EMsg} / {(EDOTAGCMsg)callback.EMsg}"
+			);
+
 			if (callback.EMsg == (uint)EDOTAGCMsg.k_EMsgGCTeamInvite_GCImmediateResponseToInviter)
+			{
+				var result =
+					new ClientGCMsgProtobuf<CMsgDOTATeamInvite_GCImmediateResponseToInviter>(
+						callback.Message);
+
+				dota.Log.AppendLine(
+					$"[SPAM] INVITE RESULT: {result.Body.result}"
+				);
+
+				dota.Log.AppendLine(
+					$"[SPAM] INVITEE: {result.Body.invitee_name}"
+				);
+
+				dota.Log.AppendLine(
+					$"[SPAM] REQUIRED PLAY TIME: {result.Body.required_play_time}"
+				);
+
+				// Оставляем spam как был.
 				SendInvite();
+			}
 		}
 		public void LoadTeams()
 		{
